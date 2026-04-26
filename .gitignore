@@ -1,0 +1,29 @@
+# Ortam değişkenleri - ASLA commit edilmemeli
+.env
+.env.local
+.env.*.local
+
+# Go build çıktıları
+/bin/
+/dist/
+
+# Go bağımlılık önbelleği
+vendor/
+
+# Test ve profil dosyaları
+*.test
+*.prof
+coverage.out
+
+# IDE dosyaları
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS dosyaları
+.DS_Store
+Thumbs.db
+
+# Docker volume verileri
+.docker-data/
