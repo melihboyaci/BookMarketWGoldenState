@@ -20,6 +20,9 @@ func main() {
 	db.Connect()
 	defer db.DB.Close()
 
+	// Uygulama her açıldığında seed verisini yükle (idempotent)
+	db.Seed()
+
 	port := os.Getenv("APP_PORT")
 	if port == "" {
 		port = "8080"
