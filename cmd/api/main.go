@@ -52,18 +52,11 @@ func main() {
 		}
 
 		// Yalnızca Admin yetkisi gerektiren korumalı rotalar
-		// Phase 4'te /system/restore bu gruba eklenecek
 		admin := v1.Group("/system")
 		admin.Use(middleware.RequireAdminRole())
 		{
-			// Yer tutucu: Phase 4'te POST /api/v1/system/restore buraya gelecek
-			admin.GET("/ping", func(c *gin.Context) {
-				email, _ := c.Get("email")
-				c.JSON(http.StatusOK, gin.H{
-					"message": "Admin erişimi doğrulandı.",
-					"user":    email,
-				})
-			})
+			// Golden State sıfırlama: demo_active'i sil, blueprint'i kopyala
+			admin.POST("/restore", handlers.RestoreGoldenState)
 		}
 	}
 
