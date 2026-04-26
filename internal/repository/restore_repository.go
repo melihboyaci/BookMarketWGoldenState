@@ -40,7 +40,13 @@ func RestoreGoldenState(db *sql.DB) (*RestoreResult, error) {
 		return nil, fmt.Errorf("transaction başlatılamadı: %w", err)
 	}
 
-	// Adım 1: demo_active kayıtlarını sil
+	// Adım 1: demo_active kayıtlarını sil (Önce orders, sonra books. Gerçi ON DELETE CASCADE var ama temiz olması için açıkça siliyoruz veya cascade orders'a değil, books silindiğinde order_items siliniyor)
+	_, err = tx.Exec(`DELETE FROM orders WHERE tenant_id = 'demo_active'`)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("demo_active orders silinemedi: %w", err)
+	}
+
 	delRes, err := tx.Exec(`DELETE FROM books WHERE tenant_id = 'demo_active'`)
 	if err != nil {
 		_ = tx.Rollback()

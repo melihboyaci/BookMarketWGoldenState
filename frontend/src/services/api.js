@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Ensure the trailing slash is omitted, or handle it consistently.
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+const API_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -47,20 +47,35 @@ export const authService = {
 
 export const bookService = {
   getBooks: async () => {
-    // Backend doesn't have a GET /books endpoint yet according to main.go, 
-    // but Phase 2 plan requests this function.
-    try {
-      const response = await api.get('/books');
-      return response.data;
-    } catch (error) {
-      // Mocked data if endpoint is missing to allow frontend testing
-      console.warn("API /books failed, returning mock data.", error);
-      return [];
-    }
+    const response = await api.get('/books');
+    return response.data;
   },
+  createBook: async (bookData) => {
+    const response = await api.post('/books', bookData);
+    return response.data;
+  },
+  updateBook: async (id, bookData) => {
+    const response = await api.put(`/books/${id}`, bookData);
+    return response.data;
+  },
+  deleteBook: async (id) => {
+    const response = await api.delete(`/books/${id}`);
+    return response.data;
+  }
+};
+
+export const cartService = {
+  checkout: async (items) => {
+    const response = await api.post('/checkout', { items });
+    return response.data;
+  }
 };
 
 export const systemService = {
+  getSales: async () => {
+    const response = await api.get('/sales');
+    return response.data;
+  },
   restoreGoldenState: async () => {
     const response = await api.post('/system/restore');
     return response.data;

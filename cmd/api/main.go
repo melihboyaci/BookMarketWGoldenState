@@ -51,6 +51,29 @@ func main() {
 			auth.POST("/login", handlers.Login)
 		}
 
+		// Kitaplar
+		books := v1.Group("/books")
+		{
+			books.GET("", handlers.GetBooks) // Herkes görebilir
+			
+			// Yalnızca Satıcı (ve Admin) yetkisi gerektiren işlemler
+			protectedBooks := books.Group("")
+			protectedBooks.Use(middleware.RequireSellerRole())
+			{
+				protectedBooks.POST("", handlers.CreateBook)
+				protectedBooks.PUT("/:id", handlers.UpdateBook)
+				protectedBooks.DELETE("/:id", handlers.DeleteBook)
+			}
+		}
+
+		// Checkout ve Satışlar
+		orders := v1.Group("")
+		orders.Use(middleware.RequireAuth())
+		{
+			orders.POST("/checkout", handlers.Checkout)
+			orders.GET("/sales", handlers.GetSales)
+		}
+
 		// Yalnızca Admin yetkisi gerektiren korumalı rotalar
 		admin := v1.Group("/system")
 		admin.Use(middleware.RequireAdminRole())
