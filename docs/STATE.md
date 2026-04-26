@@ -9,9 +9,9 @@
 - [x] **Phase 4:** Restore Golden State Mekanizması ✅
 
 ## Aktif Görev (Current Task)
-Güvenlik ve dayanıklılık düzeltmeleri tamamlandı. Sonraki adım için onay bekleniyor.
+Unit ve Integration testleri tamamlandı (Tüm testler PASS). Test altyapısı hazırlandı. Sonraki adım: Frontend (React SPA) geliştirme süreci.
 
-## Phase 1–4 Sonrası — Güvenlik & Dayanıklılık Düzeltmeleri ✅
+## Phase 1–4 Sonrası — Güvenlik & Dayanıklılık & Testler ✅
 - **[GÜVENLİK]** `system_handler.go`: iç hata detayı (SQL mesajı, tablo adı) artık API yanıtında gizleniyor, sunucu loguna yazılıyor
 - **[RATE-LIMIT]** `restore_repository.go`: `sync.Mutex.TryLock()` ile eş zamanlı restore istekleri anında reddediliyor
 - **[DAYANIKLILIK]** `db.go`: `SetConnMaxLifetime(30 * time.Minute)` eklendi — stale connection hatası önlendi
