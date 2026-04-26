@@ -1,8 +1,8 @@
 # Current Frontend State
 
-- [ ] **Phase 1:** Vite & Tailwind Kurulumu
-- [ ] **Phase 2:** API Servisleri ve Context
+- [x] **Phase 1:** Vite & Tailwind Kurulumu
+- [x] **Phase 2:** API Servisleri ve Context
 - [ ] **Phase 3:** Temel Arayüz (UI)
 - [ ] **Phase 4:** Golden State Entegrasyonu
 
-**Aktif Görev:** Proje başlatılmayı bekliyor.
+**Aktif Görev:** Phase 3 (Temel Arayüz) - `LoginPage` ve `DashboardPage` bileşenleri geliştiriliyor.
