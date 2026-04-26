@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"time"
 
@@ -16,8 +17,10 @@ import (
 func RestoreGoldenState(c *gin.Context) {
 	result, err := repository.RestoreGoldenState(db.DB)
 	if err != nil {
+		// Güvenlik: iç hata detayını (tablo adı, SQL mesajı vb.) logla ama dışarıya sızdırma
+		log.Printf("HATA: Golden State restore başarısız: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Golden State sıfırlama işlemi başarısız: " + err.Error(),
+			"error": "Sistem sıfırlama işlemi sırasında bir hata oluştu.",
 		})
 		return
 	}

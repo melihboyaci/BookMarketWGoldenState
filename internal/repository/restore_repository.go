@@ -3,8 +3,13 @@ package repository
 import (
 	"database/sql"
 	"fmt"
+	"sync"
 	"time"
 )
+
+// restoreMu, aynı anda yalnızca bir restore işleminin çalışmasını garanti eder.
+// TryLock kullanıyoruz: eş zamanlı istek gelirse bekletmek yerine anında reddediyoruz.
+var restoreMu sync.Mutex
 
 // RestoreResult, Golden State sıfırlama işleminin sonucunu tutar.
 // Bu bilgiler API yanıtında demo kullanıcısına gösterilmek üzere döner.
@@ -22,6 +27,12 @@ type RestoreResult struct {
 //  2. demo_blueprint satırlarını 'demo_active' tenant_id ile kopyala (INSERT ... SELECT)
 //  3. Commit — başarılı ise sonucu döndür, hata varsa Rollback ile geri al
 func RestoreGoldenState(db *sql.DB) (*RestoreResult, error) {
+	// Eş zamanlı restore isteklerini önle: kilit alınamazsa işlemi hemen reddet
+	if !restoreMu.TryLock() {
+		return nil, fmt.Errorf("başka bir restore işlemi zaten devam ediyor")
+	}
+	defer restoreMu.Unlock()
+
 	start := time.Now()
 
 	tx, err := db.Begin()

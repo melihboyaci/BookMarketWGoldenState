@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	// PostgreSQL sürücüsünü yan etki (side-effect) olarak import ediyoruz.
 	// Bu, database/sql'in "postgres" sürücüsünü tanımasını sağlar.
@@ -36,6 +37,8 @@ func Connect() {
 	// Bağlantı havuzu ayarları
 	DB.SetMaxOpenConns(25)
 	DB.SetMaxIdleConns(10)
+	// Stale connection hatasını önlemek için bağlantı ömrünü sınırla
+	DB.SetConnMaxLifetime(30 * time.Minute)
 
 	// Gerçek bir TCP bağlantısı kuruluyor mu diye kontrol ediyoruz.
 	if err = DB.Ping(); err != nil {

@@ -9,21 +9,15 @@
 - [x] **Phase 4:** Restore Golden State Mekanizması ✅
 
 ## Aktif Görev (Current Task)
-Phase 1 tamamlandı. Phase 2 için "Başla" komutu bekleniyor.
+Güvenlik ve dayanıklılık düzeltmeleri tamamlandı. Sonraki adım için onay bekleniyor.
 
-## Phase 1 — Tamamlanan İşler
-- `.gitignore` oluşturuldu (Go + .env)
-- `.env` oluşturuldu (PostgreSQL bağlantı bilgileri)
-- `docker-compose.yml` oluşturuldu (PostgreSQL 16 + healthcheck)
-- `go mod init` çalıştırıldı → `github.com/bookmarket/golden-state`
-- `lib/pq` ve `joho/godotenv` bağımlılıkları eklendi
-- `internal/db/db.go` → ORM'siz, saf `database/sql` bağlantı havuzu
-- `internal/db/migrations/001_create_books_table.sql` → `tenant_id` + index
-- `cmd/api/main.go` → Giriş noktası oluşturuldu
-- `go build ./...` → Derleme hatasız geçti ✅
+## Phase 1–4 Sonrası — Güvenlik & Dayanıklılık Düzeltmeleri ✅
+- **[GÜVENLİK]** `system_handler.go`: iç hata detayı (SQL mesajı, tablo adı) artık API yanıtında gizleniyor, sunucu loguna yazılıyor
+- **[RATE-LIMIT]** `restore_repository.go`: `sync.Mutex.TryLock()` ile eş zamanlı restore istekleri anında reddediliyor
+- **[DAYANIKLILIK]** `db.go`: `SetConnMaxLifetime(30 * time.Minute)` eklendi — stale connection hatası önlendi
 
 ## Son Kararlar ve Notlar (Dev Notes)
 - ORM kullanılmayacak, `database/sql` ile devam edilecek.
-- Bağlantı havuzu: MaxOpenConns=25, MaxIdleConns=10
+- Bağlantı havuzu: MaxOpenConns=25, MaxIdleConns=10, MaxConnLifetime=30m
 - `tenant_id` üzerinde index oluşturuldu (Golden State reset sorgularını hızlandırmak için)
-- Phase 1 git commit hash: (commit atıldıktan sonra buraya yazılacak)
+- Sonraki aşama: Unit/Integration testler → Frontend geliştirme
