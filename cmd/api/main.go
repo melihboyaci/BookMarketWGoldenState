@@ -48,7 +48,8 @@ func main() {
 		// Kimlik doğrulama (herkese açık)
 		auth := v1.Group("/auth")
 		{
-			auth.POST("/login", handlers.Login)
+			auth.POST("/login", handlers.Login(db.DB))
+			auth.POST("/register", handlers.Register(db.DB))
 		}
 
 		// Kitaplar

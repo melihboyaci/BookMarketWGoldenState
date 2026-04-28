@@ -23,8 +23,13 @@ type RestoreResult struct {
 // birebir kopyasını demo_active olarak yeniden oluşturur.
 //
 // İş adımları (tümü tek bir Transaction içinde):
-//  1. Tüm demo_active satırlarını sil (DELETE)
-//  2. demo_blueprint satırlarını 'demo_active' tenant_id ile kopyala (INSERT ... SELECT)
+//
+//  1. DELETE (Foreign Key sırasına göre): orders → users → books
+//     (Sadece demo_active olanlar silinir)
+//
+//  2. INSERT ... SELECT (Bağımlılık sırasına göre): books → users
+//     (demo_blueprint satırları 'demo_active' tenant_id ile kopyalanır)
+//
 //  3. Commit — başarılı ise sonucu döndür, hata varsa Rollback ile geri al
 func RestoreGoldenState(db *sql.DB) (*RestoreResult, error) {
 	// Eş zamanlı restore isteklerini önle: kilit alınamazsa işlemi hemen reddet
@@ -40,43 +45,67 @@ func RestoreGoldenState(db *sql.DB) (*RestoreResult, error) {
 		return nil, fmt.Errorf("transaction başlatılamadı: %w", err)
 	}
 
-	// Adım 1: demo_active kayıtlarını sil (Önce orders, sonra books. Gerçi ON DELETE CASCADE var ama temiz olması için açıkça siliyoruz veya cascade orders'a değil, books silindiğinde order_items siliniyor)
+	// ── Adım 1: DELETE (FK sırasına göre) ────────────────────────────────────
+
+	// 1a. Önce orders: users'a FK bağlı olduğundan önce silinmeli
 	_, err = tx.Exec(`DELETE FROM orders WHERE tenant_id = 'demo_active'`)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, fmt.Errorf("demo_active orders silinemedi: %w", err)
 	}
 
+	// 1b. Sonra users: books'a bağımlılığı yok, orders temizlendikten sonra silinebilir
+	_, err = tx.Exec(`DELETE FROM users WHERE tenant_id = 'demo_active'`)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("demo_active users silinemedi: %w", err)
+	}
+
+	// 1c. Son olarak books: diğer tablolara referans eden tablolar temizlendikten sonra
 	delRes, err := tx.Exec(`DELETE FROM books WHERE tenant_id = 'demo_active'`)
 	if err != nil {
 		_ = tx.Rollback()
-		return nil, fmt.Errorf("demo_active kayıtları silinemedi: %w", err)
+		return nil, fmt.Errorf("demo_active books silinemedi: %w", err)
 	}
 	deletedRows, _ := delRes.RowsAffected()
 
-	// Adım 2: demo_blueprint'i demo_active olarak kopyala.
-	// id sütunu BIGSERIAL olduğu için SELECT listesine dahil edilmez;
-	// her kopyalanan kitap yeni ve benzersiz bir id alır.
-	insRes, err := tx.Exec(`
-		INSERT INTO books (tenant_id, title, author, isbn, price, stock, created_at, updated_at)
-		SELECT 'demo_active', title, author, isbn, price, stock, NOW(), NOW()
+	// ── Adım 2: INSERT ... SELECT (Bağımlılık sırasına göre) ─────────────────
+
+	// 2a. Önce books: users'dan bağımsız, önce oluşturulmalı
+	// id BIGSERIAL olduğu için SELECT listesine dahil edilmez; yeni id alır
+	insBooks, err := tx.Exec(`
+		INSERT INTO books (tenant_id, title, author, isbn, image_url, price, stock, created_at, updated_at)
+		SELECT 'demo_active', title, author, isbn, image_url, price, stock, NOW(), NOW()
 		FROM books
 		WHERE tenant_id = 'demo_blueprint'
 	`)
 	if err != nil {
 		_ = tx.Rollback()
-		return nil, fmt.Errorf("demo_blueprint kopyalanamadı: %w", err)
+		return nil, fmt.Errorf("demo_blueprint books kopyalanamadı: %w", err)
 	}
-	insertedRows, _ := insRes.RowsAffected()
+	insertedBooksRows, _ := insBooks.RowsAffected()
 
-	// Adım 3: Değişiklikleri kalıcı hale getir
+	// 2b. Sonra users: id UUID olduğu için SELECT listesine dahil edilmez; yeni UUID alır
+	insUsers, err := tx.Exec(`
+		INSERT INTO users (username, email, password_hash, role, tenant_id, created_at)
+		SELECT username, email, password_hash, role, 'demo_active', NOW()
+		FROM users
+		WHERE tenant_id = 'demo_blueprint'
+	`)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("demo_blueprint users kopyalanamadı: %w", err)
+	}
+	insertedUsersRows, _ := insUsers.RowsAffected()
+
+	// ── Adım 3: Değişiklikleri kalıcı hale getir ─────────────────────────────
 	if err = tx.Commit(); err != nil {
 		return nil, fmt.Errorf("transaction commit edilemedi: %w", err)
 	}
 
 	return &RestoreResult{
 		DeletedRows:  deletedRows,
-		InsertedRows: insertedRows,
+		InsertedRows: insertedBooksRows + insertedUsersRows,
 		DurationMs:   time.Since(start).Milliseconds(),
 	}, nil
 }

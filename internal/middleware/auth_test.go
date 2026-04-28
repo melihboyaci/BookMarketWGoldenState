@@ -22,7 +22,7 @@ func generateTestToken(role models.Role, secret string, expired bool) string {
 	}
 
 	claims := models.DemoClaims{
-		UserID: 1,
+		UserID: "00000000-0000-0000-0000-000000000001",
 		Email:  "test@demo.com",
 		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
