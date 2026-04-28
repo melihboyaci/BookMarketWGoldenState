@@ -7,8 +7,21 @@ import (
 	"github.com/bookmarket/golden-state/internal/models"
 )
 
-func Checkout(db *sql.DB, tenantID string, req *models.CheckoutRequest) error {
-	tx, err := db.Begin()
+type OrderRepository interface {
+	Checkout(tenantID string, req *models.CheckoutRequest) error
+	GetSalesStats(tenantID string) ([]models.SalesStat, error)
+}
+
+type PostgresOrderRepository struct {
+	db *sql.DB
+}
+
+func NewOrderRepository(db *sql.DB) OrderRepository {
+	return &PostgresOrderRepository{db: db}
+}
+
+func (r *PostgresOrderRepository) Checkout(tenantID string, req *models.CheckoutRequest) error {
+	tx, err := r.db.Begin()
 	if err != nil {
 		return err
 	}
@@ -69,7 +82,7 @@ func Checkout(db *sql.DB, tenantID string, req *models.CheckoutRequest) error {
 	return tx.Commit()
 }
 
-func GetSalesStats(db *sql.DB, tenantID string) ([]models.SalesStat, error) {
+func (r *PostgresOrderRepository) GetSalesStats(tenantID string) ([]models.SalesStat, error) {
 	query := `
 		SELECT 
 			TO_CHAR(created_at, 'YYYY-MM-DD') as date,
@@ -81,7 +94,7 @@ func GetSalesStats(db *sql.DB, tenantID string) ([]models.SalesStat, error) {
 		ORDER BY date DESC
 		LIMIT 30
 	`
-	rows, err := db.Query(query, tenantID)
+	rows, err := r.db.Query(query, tenantID)
 	if err != nil {
 		return nil, err
 	}

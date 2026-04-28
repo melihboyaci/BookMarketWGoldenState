@@ -1,19 +1,30 @@
 package handlers
 
 import (
-	"database/sql"
 	"errors"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/bookmarket/golden-state/internal/config"
 	"github.com/bookmarket/golden-state/internal/models"
 	"github.com/bookmarket/golden-state/internal/repository"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
+
+type AuthHandler struct {
+	userRepo repository.UserRepository
+	cfg      *config.Config
+}
+
+func NewAuthHandler(userRepo repository.UserRepository, cfg *config.Config) *AuthHandler {
+	return &AuthHandler{
+		userRepo: userRepo,
+		cfg:      cfg,
+	}
+}
 
 // loginRequest, POST /auth/login için beklenen istek gövdesidir.
 type loginRequest struct {
@@ -35,9 +46,7 @@ type registerRequest struct {
 }
 
 // Login, POST /api/v1/auth/login endpoint'ini karşılar.
-// Veritabanından bcrypt hash'i çekip gelen şifreyle kıyaslar;
-// başarılıysa 24 saatlik JWT döner.
-func Login(db *sql.DB) gin.HandlerFunc {
+func (h *AuthHandler) Login() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req loginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -46,10 +55,9 @@ func Login(db *sql.DB) gin.HandlerFunc {
 		}
 
 		// Kullanıcıyı yalnızca demo_active tenant'ından ara
-		user, err := repository.FindUserByEmail(db, strings.ToLower(req.Email), "demo_active")
+		user, err := h.userRepo.FindByEmail(strings.ToLower(req.Email), config.TenantActive)
 		if err != nil {
 			if errors.Is(err, repository.ErrUserNotFound) {
-				// Güvenlik: hangi alanın hatalı olduğunu ifşa etme
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "E-posta veya şifre hatalı."})
 				return
 			}
@@ -57,13 +65,13 @@ func Login(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Bcrypt karşılaştırması: sabit zamanlı → timing attack'a karşı güvenli
+		// Bcrypt karşılaştırması
 		if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "E-posta veya şifre hatalı."})
 			return
 		}
 
-		signedToken, err := generateJWT(user)
+		signedToken, err := h.generateJWT(user)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Token oluşturulurken bir hata meydana geldi."})
 			return
@@ -77,8 +85,7 @@ func Login(db *sql.DB) gin.HandlerFunc {
 }
 
 // Register, POST /api/v1/auth/register endpoint'ini karşılar.
-// Şifreyi bcrypt ile hashler ve yeni kullanıcıyı 'demo_active' tenant'ına ekler.
-func Register(db *sql.DB) gin.HandlerFunc {
+func (h *AuthHandler) Register() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req registerRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -86,7 +93,6 @@ func Register(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Şifreyi bcrypt ile hashle (cost=10: güvenlik ve performans dengesi)
 		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Şifre işlenirken bir hata oluştu."})
@@ -97,12 +103,11 @@ func Register(db *sql.DB) gin.HandlerFunc {
 			Username:     req.Username,
 			Email:        strings.ToLower(req.Email),
 			PasswordHash: string(hash),
-			Role:         models.RoleBuyer, // Yeni kayıtlar varsayılan olarak BUYER rolü alır
-			TenantID:     "demo_active",
+			Role:         models.RoleBuyer,
+			TenantID:     config.TenantActive,
 		}
 
-		if err := repository.CreateUser(db, newUser); err != nil {
-			// Unique constraint ihlali: e-posta zaten kayıtlı
+		if err := h.userRepo.Create(newUser); err != nil {
 			if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
 				c.JSON(http.StatusConflict, gin.H{"error": "Bu e-posta adresi zaten kayıtlı."})
 				return
@@ -111,7 +116,7 @@ func Register(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		signedToken, err := generateJWT(newUser)
+		signedToken, err := h.generateJWT(newUser)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Token oluşturulurken bir hata meydana geldi."})
 			return
@@ -124,9 +129,19 @@ func Register(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
-// generateJWT, verilen kullanıcı için 24 saatlik JWT üretir.
-// Login ve Register tarafından ortak kullanılır.
-func generateJWT(user *models.User) (string, error) {
+// GetUsers, GET /api/v1/admin/users endpoint'ini karşılar.
+func (h *AuthHandler) GetUsers() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		users, err := h.userRepo.GetAll()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Kullanıcılar getirilirken bir hata oluştu."})
+			return
+		}
+		c.JSON(http.StatusOK, users)
+	}
+}
+
+func (h *AuthHandler) generateJWT(user *models.User) (string, error) {
 	claims := models.DemoClaims{
 		UserID: user.ID,
 		Email:  user.Email,
@@ -139,5 +154,5 @@ func generateJWT(user *models.User) (string, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+	return token.SignedString([]byte(h.cfg.JWTSecret))
 }

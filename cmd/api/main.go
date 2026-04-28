@@ -9,35 +9,56 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bookmarket/golden-state/internal/config"
 	"github.com/bookmarket/golden-state/internal/db"
 	"github.com/bookmarket/golden-state/internal/handlers"
 	"github.com/bookmarket/golden-state/internal/middleware"
+	"github.com/bookmarket/golden-state/internal/repository"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
 func main() {
-	// .env dosyasını yükle (dosya yoksa ortam değişkenlerini olduğu gibi kullan)
+	// .env dosyasını yükle
 	if err := godotenv.Load(); err != nil {
 		log.Println("BİLGİ: .env dosyası bulunamadı, sistem ortam değişkenleri kullanılıyor.")
 	}
 
+	// Konfigürasyonu yükle
+	cfg := config.LoadConfig()
+
 	// Veritabanı bağlantısını kur
-	db.Connect()
-	defer db.DB.Close()
+	database, err := db.Connect()
+	if err != nil {
+		log.Fatalf("HATA: Veritabanı bağlantısı kurulamadı: %v", err)
+	}
+	defer database.Close()
 
 	// Uygulama her açıldığında seed verisini yükle (idempotent)
-	db.Seed()
+	db.Seed(database)
+
+	// Bağımlılıkları Başlat (Dependency Injection)
+	// Repositories
+	userRepo := repository.NewUserRepository(database)
+	bookRepo := repository.NewBookRepository(database)
+	orderRepo := repository.NewOrderRepository(database)
+	restoreRepo := repository.NewRestoreRepository(database)
+
+	// Handlers
+	authHandler := handlers.NewAuthHandler(userRepo, cfg)
+	bookHandler := handlers.NewBookHandler(bookRepo)
+	orderHandler := handlers.NewOrderHandler(orderRepo)
+	systemHandler := handlers.NewSystemHandler(restoreRepo)
 
 	// Production modunda Gin'in debug çıktısını kapat
-	if os.Getenv("APP_ENV") == "production" {
+	if cfg.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
 	// ── Router Kurulumu ──────────────────────────────────────────────
 	r := gin.Default()
 
-	// Sağlık kontrolü (yük dengeleyiciler ve Docker healthcheck için)
+	// Sağlık kontrolü
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
@@ -45,25 +66,24 @@ func main() {
 	// API v1 grup
 	v1 := r.Group("/api/v1")
 	{
-		// Kimlik doğrulama (herkese açık)
+		// Kimlik doğrulama
 		auth := v1.Group("/auth")
 		{
-			auth.POST("/login", handlers.Login(db.DB))
-			auth.POST("/register", handlers.Register(db.DB))
+			auth.POST("/login", authHandler.Login())
+			auth.POST("/register", authHandler.Register())
 		}
 
 		// Kitaplar
 		books := v1.Group("/books")
 		{
-			books.GET("", handlers.GetBooks) // Herkes görebilir
+			books.GET("", bookHandler.GetBooks())
 			
-			// Yalnızca Satıcı (ve Admin) yetkisi gerektiren işlemler
 			protectedBooks := books.Group("")
 			protectedBooks.Use(middleware.RequireSellerRole())
 			{
-				protectedBooks.POST("", handlers.CreateBook)
-				protectedBooks.PUT("/:id", handlers.UpdateBook)
-				protectedBooks.DELETE("/:id", handlers.DeleteBook)
+				protectedBooks.POST("", bookHandler.CreateBook())
+				protectedBooks.PUT("/:id", bookHandler.UpdateBook())
+				protectedBooks.DELETE("/:id", bookHandler.DeleteBook())
 			}
 		}
 
@@ -71,48 +91,38 @@ func main() {
 		orders := v1.Group("")
 		orders.Use(middleware.RequireAuth())
 		{
-			orders.POST("/checkout", handlers.Checkout)
-			orders.GET("/sales", handlers.GetSales)
+			orders.POST("/checkout", orderHandler.Checkout())
+			orders.GET("/sales", orderHandler.GetSales())
 		}
 
-		// Yalnızca Admin yetkisi gerektiren korumalı rotalar
+		// Admin rotaları
 		admin := v1.Group("/admin")
 		admin.Use(middleware.RequireAdminRole())
 		{
-			// Golden State sıfırlama: demo_active'i sil, blueprint'i kopyala
-			admin.POST("/system/restore", handlers.RestoreGoldenState)
-			// Kullanıcı listesi: yalnızca admin görebilir
-			admin.GET("/users", handlers.GetUsers(db.DB))
+			admin.POST("/system/restore", systemHandler.RestoreGoldenState())
+			admin.GET("/users", authHandler.GetUsers())
 		}
 	}
 
 	// ── HTTP Sunucusu ─────────────────────────────────────────────────
-	port := os.Getenv("APP_PORT")
-	if port == "" {
-		port = "8080"
-	}
-
 	srv := &http.Server{
-		Addr:    ":" + port,
+		Addr:    ":" + cfg.AppPort,
 		Handler: r,
 	}
 
-	// Sunucuyu arka planda başlat
 	go func() {
-		log.Printf("BİLGİ: Sunucu :%s portunda dinleniyor...", port)
+		log.Printf("BİLGİ: Sunucu :%s portunda dinleniyor...", cfg.AppPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("HATA: Sunucu başlatılamadı: %v", err)
 		}
 	}()
 
-	// Graceful shutdown: CTRL+C veya SIGTERM sinyalini bekle
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 
 	log.Println("BİLGİ: Kapatma sinyali alındı, sunucu durduruluyor...")
 
-	// Mevcut isteklerin tamamlanması için 5 saniye bekle
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {

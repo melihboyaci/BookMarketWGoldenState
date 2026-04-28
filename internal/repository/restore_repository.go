@@ -5,42 +5,41 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/bookmarket/golden-state/internal/config"
 )
 
-// restoreMu, aynı anda yalnızca bir restore işleminin çalışmasını garanti eder.
-// TryLock kullanıyoruz: eş zamanlı istek gelirse bekletmek yerine anında reddediyoruz.
-var restoreMu sync.Mutex
-
 // RestoreResult, Golden State sıfırlama işleminin sonucunu tutar.
-// Bu bilgiler API yanıtında demo kullanıcısına gösterilmek üzere döner.
 type RestoreResult struct {
 	DeletedRows  int64
 	InsertedRows int64
 	DurationMs   int64
 }
 
+type RestoreRepository interface {
+	RestoreGoldenState() (*RestoreResult, error)
+}
+
+type PostgresRestoreRepository struct {
+	db        *sql.DB
+	restoreMu sync.Mutex
+}
+
+func NewRestoreRepository(db *sql.DB) RestoreRepository {
+	return &PostgresRestoreRepository{db: db}
+}
+
 // RestoreGoldenState, demo_active verilerini silerek demo_blueprint'in
 // birebir kopyasını demo_active olarak yeniden oluşturur.
-//
-// İş adımları (tümü tek bir Transaction içinde):
-//
-//  1. DELETE (Foreign Key sırasına göre): orders → users → books
-//     (Sadece demo_active olanlar silinir)
-//
-//  2. INSERT ... SELECT (Bağımlılık sırasına göre): books → users
-//     (demo_blueprint satırları 'demo_active' tenant_id ile kopyalanır)
-//
-//  3. Commit — başarılı ise sonucu döndür, hata varsa Rollback ile geri al
-func RestoreGoldenState(db *sql.DB) (*RestoreResult, error) {
-	// Eş zamanlı restore isteklerini önle: kilit alınamazsa işlemi hemen reddet
-	if !restoreMu.TryLock() {
+func (r *PostgresRestoreRepository) RestoreGoldenState() (*RestoreResult, error) {
+	if !r.restoreMu.TryLock() {
 		return nil, fmt.Errorf("başka bir restore işlemi zaten devam ediyor")
 	}
-	defer restoreMu.Unlock()
+	defer r.restoreMu.Unlock()
 
 	start := time.Now()
 
-	tx, err := db.Begin()
+	tx, err := r.db.Begin()
 	if err != nil {
 		return nil, fmt.Errorf("transaction başlatılamadı: %w", err)
 	}
@@ -48,7 +47,7 @@ func RestoreGoldenState(db *sql.DB) (*RestoreResult, error) {
 	// ── Adım 1: DELETE (FK sırasına göre) ────────────────────────────────────
 
 	// 1a. Önce orders
-	resOrders, err := tx.Exec(`DELETE FROM orders WHERE tenant_id = 'demo_active'`)
+	resOrders, err := tx.Exec(`DELETE FROM orders WHERE tenant_id = $1`, config.TenantActive)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, fmt.Errorf("demo_active orders silinemedi: %w", err)
@@ -56,7 +55,7 @@ func RestoreGoldenState(db *sql.DB) (*RestoreResult, error) {
 	delOrders, _ := resOrders.RowsAffected()
 
 	// 1b. Sonra users
-	resUsers, err := tx.Exec(`DELETE FROM users WHERE tenant_id = 'demo_active'`)
+	resUsers, err := tx.Exec(`DELETE FROM users WHERE tenant_id = $1`, config.TenantActive)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, fmt.Errorf("demo_active users silinemedi: %w", err)
@@ -64,7 +63,7 @@ func RestoreGoldenState(db *sql.DB) (*RestoreResult, error) {
 	delUsers, _ := resUsers.RowsAffected()
 
 	// 1c. Son olarak books
-	resBooks, err := tx.Exec(`DELETE FROM books WHERE tenant_id = 'demo_active'`)
+	resBooks, err := tx.Exec(`DELETE FROM books WHERE tenant_id = $1`, config.TenantActive)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, fmt.Errorf("demo_active books silinemedi: %w", err)
@@ -74,27 +73,26 @@ func RestoreGoldenState(db *sql.DB) (*RestoreResult, error) {
 
 	// ── Adım 2: INSERT ... SELECT (Bağımlılık sırasına göre) ─────────────────
 
-	// 2a. Önce books: users'dan bağımsız, önce oluşturulmalı
-	// id BIGSERIAL olduğu için SELECT listesine dahil edilmez; yeni id alır
+	// 2a. Önce books
 	insBooks, err := tx.Exec(`
 		INSERT INTO books (tenant_id, title, author, isbn, image_url, price, stock, created_at, updated_at)
-		SELECT 'demo_active', title, author, isbn, image_url, price, stock, NOW(), NOW()
+		SELECT $1, title, author, isbn, image_url, price, stock, NOW(), NOW()
 		FROM books
-		WHERE tenant_id = 'demo_blueprint'
-	`)
+		WHERE tenant_id = $2
+	`, config.TenantActive, config.TenantBlueprint)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, fmt.Errorf("demo_blueprint books kopyalanamadı: %w", err)
 	}
 	insertedBooksRows, _ := insBooks.RowsAffected()
 
-	// 2b. Sonra users: id UUID olduğu için SELECT listesine dahil edilmez; yeni UUID alır
+	// 2b. Sonra users
 	insUsers, err := tx.Exec(`
 		INSERT INTO users (username, email, password_hash, role, tenant_id, created_at)
-		SELECT username, email, password_hash, role, 'demo_active', NOW()
+		SELECT username, email, password_hash, role, $1, NOW()
 		FROM users
-		WHERE tenant_id = 'demo_blueprint'
-	`)
+		WHERE tenant_id = $2
+	`, config.TenantActive, config.TenantBlueprint)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, fmt.Errorf("demo_blueprint users kopyalanamadı: %w", err)

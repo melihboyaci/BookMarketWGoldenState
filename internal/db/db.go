@@ -12,12 +12,9 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// DB, uygulama genelinde kullanılacak tek veritabanı bağlantı havuzudur.
-var DB *sql.DB
-
 // Connect, .env dosyasındaki değişkenleri okuyarak PostgreSQL'e bağlanır
 // ve bağlantı havuzunu yapılandırır. Uygulama başlangıcında bir kez çağrılmalıdır.
-func Connect() {
+func Connect() (*sql.DB, error) {
 	dsn := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		os.Getenv("POSTGRES_HOST"),
@@ -27,23 +24,22 @@ func Connect() {
 		os.Getenv("POSTGRES_DB"),
 	)
 
-	var err error
-	DB, err = sql.Open("postgres", dsn)
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		// Bağlantı dizesi hatalıysa uygulamayı başlatmak anlamsızdır.
-		log.Fatalf("HATA: Veritabanı bağlantısı açılamadı: %v", err)
+		return nil, fmt.Errorf("veritabanı bağlantısı açılamadı: %w", err)
 	}
 
 	// Bağlantı havuzu ayarları
-	DB.SetMaxOpenConns(25)
-	DB.SetMaxIdleConns(10)
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
 	// Stale connection hatasını önlemek için bağlantı ömrünü sınırla
-	DB.SetConnMaxLifetime(30 * time.Minute)
+	db.SetConnMaxLifetime(30 * time.Minute)
 
 	// Gerçek bir TCP bağlantısı kuruluyor mu diye kontrol ediyoruz.
-	if err = DB.Ping(); err != nil {
-		log.Fatalf("HATA: Veritabanına ping atılamadı. Sunucu çalışıyor mu? Hata: %v", err)
+	if err = db.Ping(); err != nil {
+		return nil, fmt.Errorf("veritabanına ping atılamadı: %w", err)
 	}
 
 	log.Println("BİLGİ: PostgreSQL bağlantısı başarıyla kuruldu.")
+	return db, nil
 }

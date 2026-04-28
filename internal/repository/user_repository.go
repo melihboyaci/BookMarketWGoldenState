@@ -5,17 +5,31 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/bookmarket/golden-state/internal/config"
 	"github.com/bookmarket/golden-state/internal/models"
 )
 
 // ErrUserNotFound, kullanıcı bulunamadığında döner.
-// Handler katmanında 401 vs 404 ayrımı için kullanılır.
 var ErrUserNotFound = errors.New("kullanıcı bulunamadı")
 
-// FindUserByEmail, belirtilen e-posta ve tenant_id kombinasyonuna sahip
+// UserRepository, kullanıcı veri işlemlerini soyutlar.
+type UserRepository interface {
+	FindByEmail(email, tenantID string) (*models.User, error)
+	Create(user *models.User) error
+	GetAll() ([]models.User, error)
+}
+
+type PostgresUserRepository struct {
+	db *sql.DB
+}
+
+func NewUserRepository(db *sql.DB) UserRepository {
+	return &PostgresUserRepository{db: db}
+}
+
+// FindByEmail, belirtilen e-posta ve tenant_id kombinasyonuna sahip
 // kullanıcıyı veritabanından çeker.
-// Kullanıcı yoksa ErrUserNotFound döner.
-func FindUserByEmail(db *sql.DB, email, tenantID string) (*models.User, error) {
+func (r *PostgresUserRepository) FindByEmail(email, tenantID string) (*models.User, error) {
 	const query = `
 		SELECT id, username, email, password_hash, role, tenant_id, created_at
 		FROM users
@@ -24,7 +38,7 @@ func FindUserByEmail(db *sql.DB, email, tenantID string) (*models.User, error) {
 	`
 
 	user := &models.User{}
-	err := db.QueryRow(query, email, tenantID).Scan(
+	err := r.db.QueryRow(query, email, tenantID).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,
@@ -43,17 +57,15 @@ func FindUserByEmail(db *sql.DB, email, tenantID string) (*models.User, error) {
 	return user, nil
 }
 
-// CreateUser, yeni bir kullanıcıyı veritabanına ekler.
-// user.TenantID çağıran tarafından ayarlanmış olmalıdır (her zaman 'demo_active').
-// Oluşturulan kullanıcının UUID'si user.ID alanına yazılır.
-func CreateUser(db *sql.DB, user *models.User) error {
+// Create, yeni bir kullanıcıyı veritabanına ekler.
+func (r *PostgresUserRepository) Create(user *models.User) error {
 	const query = `
 		INSERT INTO users (username, email, password_hash, role, tenant_id)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, created_at
 	`
 
-	err := db.QueryRow(query,
+	err := r.db.QueryRow(query,
 		user.Username,
 		user.Email,
 		user.PasswordHash,
@@ -67,17 +79,16 @@ func CreateUser(db *sql.DB, user *models.User) error {
 	return nil
 }
 
-// GetAllUsers, demo_active tenant'ındaki tüm kullanıcıları döner.
-// Şifre hash'i döndürülmez — sadece admin paneli için kullanılır.
-func GetAllUsers(db *sql.DB) ([]models.User, error) {
+// GetAll, demo_active tenant'ındaki tüm kullanıcıları döner.
+func (r *PostgresUserRepository) GetAll() ([]models.User, error) {
 	const query = `
 		SELECT id, username, email, role, tenant_id, created_at
 		FROM users
-		WHERE tenant_id = 'demo_active'
+		WHERE tenant_id = $1
 		ORDER BY created_at DESC
 	`
 
-	rows, err := db.Query(query)
+	rows, err := r.db.Query(query, config.TenantActive)
 	if err != nil {
 		return nil, fmt.Errorf("kullanıcılar sorgulanırken hata: %w", err)
 	}

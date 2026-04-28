@@ -3,32 +3,44 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/bookmarket/golden-state/internal/db"
+	"github.com/bookmarket/golden-state/internal/config"
 	"github.com/bookmarket/golden-state/internal/models"
 	"github.com/bookmarket/golden-state/internal/repository"
 	"github.com/gin-gonic/gin"
 )
 
-func Checkout(c *gin.Context) {
-	var req models.CheckoutRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Geçersiz sipariş verisi"})
-		return
-	}
-
-	if err := repository.Checkout(db.DB, "demo_active", &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Sipariş başarıyla tamamlandı"})
+type OrderHandler struct {
+	orderRepo repository.OrderRepository
 }
 
-func GetSales(c *gin.Context) {
-	stats, err := repository.GetSalesStats(db.DB, "demo_active")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Satış istatistikleri alınamadı"})
-		return
+func NewOrderHandler(orderRepo repository.OrderRepository) *OrderHandler {
+	return &OrderHandler{orderRepo: orderRepo}
+}
+
+func (h *OrderHandler) Checkout() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.CheckoutRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Geçersiz sipariş verisi"})
+			return
+		}
+
+		if err := h.orderRepo.Checkout(config.TenantActive, &req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "Sipariş başarıyla tamamlandı"})
 	}
-	c.JSON(http.StatusOK, stats)
+}
+
+func (h *OrderHandler) GetSales() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		stats, err := h.orderRepo.GetSalesStats(config.TenantActive)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Satış istatistikleri alınamadı"})
+			return
+		}
+		c.JSON(http.StatusOK, stats)
+	}
 }

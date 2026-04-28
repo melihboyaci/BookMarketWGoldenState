@@ -91,7 +91,8 @@ func TestRestoreGoldenState(t *testing.T) {
 		assert.Equal(t, 9, activeCount)
 
 		// ADIM 2: Restore işlemini çağır
-		result, err := repository.RestoreGoldenState(db)
+		restoreRepo := repository.NewRestoreRepository(db)
+		result, err := restoreRepo.RestoreGoldenState()
 		
 		// ADIM 3: Sonuçları doğrula
 		require.NoError(t, err)

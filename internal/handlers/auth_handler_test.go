@@ -2,28 +2,29 @@ package handlers_test
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
 
+	"github.com/bookmarket/golden-state/internal/config"
 	"github.com/bookmarket/golden-state/internal/handlers"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
-
-	// PostgreSQL sürücüsü: sql.Open("postgres", ...) için gerekli
-	_ "github.com/lib/pq"
 )
 
 // newTestRouter, verilen db ile login+register route'larını kurar.
-// nil db geçilebilir (sadece JSON binding testleri için).
-func newTestRouter(db *sql.DB) *gin.Engine {
+func newTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/v1/auth/login", handlers.Login(db))
-	r.POST("/api/v1/auth/register", handlers.Register(db))
+
+	cfg := &config.Config{JWTSecret: "test-secret"}
+	// Testler için nil repo geçiyoruz (binding testleri için yeterli)
+	authHandler := handlers.NewAuthHandler(nil, cfg)
+
+	r.POST("/api/v1/auth/login", authHandler.Login())
+	r.POST("/api/v1/auth/register", authHandler.Register())
 	return r
 }
 
@@ -31,7 +32,7 @@ func newTestRouter(db *sql.DB) *gin.Engine {
 // hata senaryolarını test eder.
 func TestLoginHandler_InvalidBody(t *testing.T) {
 	os.Setenv("JWT_SECRET", "test-secret")
-	r := newTestRouter(nil) // DB'ye ulaşılmadan 400 dönmeli
+	r := newTestRouter() // DB'ye ulaşılmadan 400 dönmeli
 
 	tests := []struct {
 		name           string
@@ -72,7 +73,7 @@ func TestLoginHandler_InvalidBody(t *testing.T) {
 // TestRegisterHandler_InvalidBody, Register endpoint'inin binding kurallarını test eder.
 func TestRegisterHandler_InvalidBody(t *testing.T) {
 	os.Setenv("JWT_SECRET", "test-secret")
-	r := newTestRouter(nil) // DB'ye ulaşılmadan 400 dönmeli
+	r := newTestRouter() // DB'ye ulaşılmadan 400 dönmeli
 
 	tests := []struct {
 		name           string
