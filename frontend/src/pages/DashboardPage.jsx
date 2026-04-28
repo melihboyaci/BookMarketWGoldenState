@@ -147,7 +147,7 @@ export const DashboardPage = () => {
 
         {/* Kullanıcı paneli: yalnızca Admin */}
         {user?.role === 'ADMIN' && (
-          <UsersPanel />
+          <UsersPanel refreshKey={statsRefreshKey} />
         )}
 
         <div className="flex justify-between items-center mb-8">
