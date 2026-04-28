@@ -66,3 +66,31 @@ func CreateUser(db *sql.DB, user *models.User) error {
 
 	return nil
 }
+
+// GetAllUsers, demo_active tenant'ındaki tüm kullanıcıları döner.
+// Şifre hash'i döndürülmez — sadece admin paneli için kullanılır.
+func GetAllUsers(db *sql.DB) ([]models.User, error) {
+	const query = `
+		SELECT id, username, email, role, tenant_id, created_at
+		FROM users
+		WHERE tenant_id = 'demo_active'
+		ORDER BY created_at DESC
+	`
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("kullanıcılar sorgulanırken hata: %w", err)
+	}
+	defer rows.Close()
+
+	var users []models.User
+	for rows.Next() {
+		var u models.User
+		if err := rows.Scan(&u.ID, &u.Username, &u.Email, &u.Role, &u.TenantID, &u.CreatedAt); err != nil {
+			return nil, fmt.Errorf("kullanıcı satırı okunurken hata: %w", err)
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}
+

@@ -1,32 +1,15 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useContext } from 'react'
-import { AuthContext } from './context/AuthContext'
-import { LoginPage } from './pages/LoginPage'
 import { DashboardPage } from './pages/DashboardPage'
 
-// Protected Route Component
-const ProtectedRoute = ({ children }) => {
-  const { token } = useContext(AuthContext)
-  if (!token) {
-    return <Navigate to="/login" replace />
-  }
-  return children
-}
-
+// Dashboard artık herkese açık — Lazy Auth akışı
 function App() {
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route 
-        path="/dashboard" 
-        element={
-          <ProtectedRoute>
-            <DashboardPage />
-          </ProtectedRoute>
-        } 
-      />
-      {/* Fallback routing */}
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      {/* Ana sayfa: misafir de görebilir */}
+      <Route path="/" element={<DashboardPage />} />
+      <Route path="/dashboard" element={<DashboardPage />} />
+      {/* Bilinmeyen yolları ana sayfaya yönlendir */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

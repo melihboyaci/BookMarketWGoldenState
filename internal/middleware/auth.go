@@ -69,7 +69,7 @@ func RequireSellerRole() gin.HandlerFunc {
 			return
 		}
 		if claims.Role != models.RoleSeller && claims.Role != models.RoleAdmin {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Bu işlem için Seller yetkisi gereklidir."})
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Bu işlem için Satıcı veya Admin yetkisi gereklidir."})
 			return
 		}
 		c.Set("user_id", claims.UserID)

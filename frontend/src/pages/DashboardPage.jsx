@@ -6,6 +6,7 @@ import { Card, CardBody, CardFooter } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Navbar } from '../components/layout/Navbar';
 import { SalesStats } from '../components/dashboard/SalesStats';
+import { UsersPanel } from '../components/dashboard/UsersPanel';
 import { Book, RefreshCw, ShoppingCart, Loader2, Plus, Edit, Trash2, X, RotateCcw } from 'lucide-react';
 
 export const DashboardPage = () => {
@@ -139,9 +140,14 @@ export const DashboardPage = () => {
           </div>
         )}
 
-        {/* Stats for Seller and Admin */}
+        {/* Stats: Seller ve Admin için */}
         {(user?.role === 'SELLER' || user?.role === 'ADMIN') && (
           <SalesStats refreshKey={statsRefreshKey} />
+        )}
+
+        {/* Kullanıcı paneli: yalnızca Admin */}
+        {user?.role === 'ADMIN' && (
+          <UsersPanel />
         )}
 
         <div className="flex justify-between items-center mb-8">
@@ -150,7 +156,7 @@ export const DashboardPage = () => {
             <p className="text-sm text-slate-500 mt-1">Sistemdeki tüm kitapları inceleyin.</p>
           </div>
           <div className="flex gap-2">
-            {user?.role === 'SELLER' && (
+            {(user?.role === 'SELLER' || user?.role === 'ADMIN') && (
               <Button variant="primary" onClick={openAddModal} className="gap-2">
                 <Plus className="h-4 w-4" />
                 Yeni Kitap
@@ -182,7 +188,7 @@ export const DashboardPage = () => {
                     <img 
                       src={book.image_url} 
                       alt={book.title} 
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-contain p-2 group-hover:scale-105 transition-transform duration-500"
                     />
                   ) : (
                     <Book className="h-16 w-16 text-slate-300" />
@@ -203,11 +209,12 @@ export const DashboardPage = () => {
                   </div>
                 </CardBody>
                 
-                {user?.role === 'BUYER' && (
+                {/* BUYER veya misafir → Sepete Ekle */}
+                {(!user || user?.role === 'BUYER') && (
                   <CardFooter className="pt-0 pb-4 px-4 bg-white border-none">
                     <Button 
                       variant="primary" 
-                      className="w-full gap-2 group-hover:bg-indigo-700"
+                      className="w-full gap-2 group-hover:bg-indigo-700 shadow-lg shadow-indigo-200"
                       onClick={() => addToCart(book)}
                       disabled={book.stock <= 0}
                     >
@@ -217,7 +224,7 @@ export const DashboardPage = () => {
                   </CardFooter>
                 )}
                 
-                {user?.role === 'SELLER' && (
+                {(user?.role === 'SELLER' || user?.role === 'ADMIN') && (
                   <CardFooter className="pt-0 pb-4 px-4 bg-white border-none flex gap-2">
                     <Button variant="secondary" className="flex-1 gap-1 px-2" onClick={() => openEditModal(book)}>
                       <Edit className="h-4 w-4" />
@@ -260,7 +267,7 @@ export const DashboardPage = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Görsel URL</label>
-                  <input type="text" value={formData.image_url} placeholder="https://..." onChange={e => setFormData({...formData, image_url: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" />
+                  <input type="url" value={formData.image_url} placeholder="https://..." onChange={e => setFormData({...formData, image_url: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">ISBN</label>

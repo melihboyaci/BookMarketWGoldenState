@@ -11,24 +11,39 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(() => localStorage.getItem('token') || null);
   const [loading, setLoading] = useState(false);
 
-  // You can also add token validation logic here if necessary
+  const _persist = (token, userData) => {
+    setToken(token);
+    setUser(userData);
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(userData));
+  };
 
   const login = async (email, password) => {
     setLoading(true);
     try {
       const data = await authService.login(email, password);
-      setToken(data.token);
-      
-      const userData = { email, role: data.role };
-      setUser(userData);
-      
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(userData));
-      return { success: true };
+      _persist(data.token, { email, role: data.role });
+      return { success: true, role: data.role };
     } catch (error) {
-      return { 
-        success: false, 
-        error: error.response?.data?.error || 'Giriş yapılamadı. Lütfen bilgilerinizi kontrol edin.' 
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Giriş yapılamadı. Lütfen bilgilerinizi kontrol edin.',
+      };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const register = async (username, email, password) => {
+    setLoading(true);
+    try {
+      const data = await authService.register(username, email, password);
+      _persist(data.token, { email, role: data.role });
+      return { success: true, role: data.role };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.response?.data?.error || 'Kayıt oluşturulamadı. Lütfen tekrar deneyin.',
       };
     } finally {
       setLoading(false);
@@ -43,7 +58,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

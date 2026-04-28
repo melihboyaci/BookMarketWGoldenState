@@ -1,25 +1,26 @@
 import React, { useContext, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../../context/AuthContext';
 import { CartContext } from '../../context/CartContext';
 import { Button } from '../ui/Button';
+import { AuthModal } from '../auth/AuthModal';
 import { BookOpen, LogOut, ShoppingCart, X, CreditCard, Loader2 } from 'lucide-react';
 import { cartService } from '../../services/api';
 
 export const Navbar = ({ onOrderComplete }) => {
   const { user, logout } = useContext(AuthContext);
   const { cartItems, getCartTotal, removeFromCart, clearCart } = useContext(CartContext);
-  const navigate = useNavigate();
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    // Yönlendirme yok — misafir olarak kalmaya devam eder
   };
 
-  const handleCheckout = async () => {
+  // Gerçek checkout işlemi — token zaten var
+  const performCheckout = async () => {
     if (cartItems.length === 0) return;
     setCheckoutLoading(true);
     try {
@@ -27,16 +28,40 @@ export const Navbar = ({ onOrderComplete }) => {
       await cartService.checkout(items);
       setCheckoutSuccess(true);
       clearCart();
-      if (onOrderComplete) onOrderComplete(); // DashboardPage'i bilgilendir
+      if (onOrderComplete) onOrderComplete();
       setTimeout(() => {
         setCheckoutSuccess(false);
         setIsCartOpen(false);
       }, 3000);
     } catch (error) {
-      alert(error.response?.data?.error || "Sipariş tamamlanırken hata oluştu.");
+      const errorMsg = error.response?.data?.error || 'Sipariş tamamlanırken hata oluştu.';
+      if (errorMsg.includes('not found')) {
+        alert('Sepetinizdeki bazı kitaplar sistemde bulunamadı (sistem sıfırlanmış olabilir). Sepetiniz temizlendi, lütfen yeniden ekleyin.');
+        clearCart();
+        setIsCartOpen(false);
+      } else {
+        alert(errorMsg);
+      }
     } finally {
       setCheckoutLoading(false);
     }
+  };
+
+  // "Siparişi Tamamla" butonuna basıldığında:
+  // Kullanıcı giriş yapmamışsa önce modal, giriş sonrası checkout
+  const handleCheckoutClick = () => {
+    if (!user) {
+      setShowAuthModal(true);
+    } else {
+      performCheckout();
+    }
+  };
+
+  // AuthModal'dan giriş/kayıt başarılı olunca çağrılır
+  const handleAuthSuccess = () => {
+    setShowAuthModal(false);
+    // Token artık localStorage'da → checkout isteği gönder
+    performCheckout();
   };
 
   return (
@@ -51,23 +76,22 @@ export const Navbar = ({ onOrderComplete }) => {
               </div>
             </div>
             <div className="flex items-center gap-4">
+              {/* Sepet ikonu: giriş yapmış BUYER veya misafir görebilir */}
+              <button
+                onClick={() => setIsCartOpen(true)}
+                className="relative p-2 text-slate-500 hover:text-indigo-600 transition-colors"
+              >
+                <ShoppingCart className="h-6 w-6" />
+                {cartItems.length > 0 && (
+                  <span className="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white transform translate-x-1/4 -translate-y-1/4 bg-rose-600 rounded-full">
+                    {cartItems.reduce((acc, item) => acc + item.quantity, 0)}
+                  </span>
+                )}
+              </button>
+
               {user ? (
                 <>
-                  {user.role === 'BUYER' && (
-                    <button 
-                      onClick={() => setIsCartOpen(true)}
-                      className="relative p-2 text-slate-500 hover:text-indigo-600 transition-colors"
-                    >
-                      <ShoppingCart className="h-6 w-6" />
-                      {cartItems.length > 0 && (
-                        <span className="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white transform translate-x-1/4 -translate-y-1/4 bg-rose-600 rounded-full">
-                          {cartItems.reduce((acc, item) => acc + item.quantity, 0)}
-                        </span>
-                      )}
-                    </button>
-                  )}
-                  
-                  <div className="flex flex-col items-end hidden sm:flex border-l border-slate-200 pl-4 ml-2">
+                  <div className="hidden sm:flex flex-col items-end border-l border-slate-200 pl-4 ml-2">
                     <span className="text-sm font-medium text-slate-900">{user.email}</span>
                     <span className="text-xs text-slate-500 uppercase font-semibold tracking-wider">{user.role}</span>
                   </div>
@@ -76,7 +100,16 @@ export const Navbar = ({ onOrderComplete }) => {
                     Çıkış Yap
                   </Button>
                 </>
-              ) : null}
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShowAuthModal(true)}
+                  className="text-slate-600"
+                >
+                  Giriş Yap
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -143,10 +176,10 @@ export const Navbar = ({ onOrderComplete }) => {
                       <p>Ara Toplam</p>
                       <p>₺{getCartTotal().toLocaleString('tr-TR', { minimumFractionDigits: 2 })}</p>
                     </div>
-                    <Button 
-                      variant="primary" 
+                    <Button
+                      variant="primary"
                       className="w-full h-12 text-lg flex items-center justify-center gap-2"
-                      onClick={handleCheckout}
+                      onClick={handleCheckoutClick}
                       disabled={checkoutLoading}
                     >
                       {checkoutLoading ? (
@@ -157,16 +190,29 @@ export const Navbar = ({ onOrderComplete }) => {
                       ) : (
                         <>
                           <CreditCard className="h-5 w-5" />
-                          Siparişi Tamamla
+                          {user ? 'Siparişi Tamamla' : 'Giriş Yap'}
                         </>
                       )}
                     </Button>
+                    {!user && (
+                      <p className="text-xs text-center text-slate-400 mt-3">
+                        Ödeme için hızlı giriş veya ücretsiz kayıt gereklidir.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Auth Modal — Lazy: sadece checkout tetiklendiğinde açılır */}
+      {showAuthModal && (
+        <AuthModal
+          onSuccess={handleAuthSuccess}
+          onClose={() => setShowAuthModal(false)}
+        />
       )}
     </>
   );

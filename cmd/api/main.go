@@ -76,11 +76,13 @@ func main() {
 		}
 
 		// Yalnızca Admin yetkisi gerektiren korumalı rotalar
-		admin := v1.Group("/system")
+		admin := v1.Group("/admin")
 		admin.Use(middleware.RequireAdminRole())
 		{
 			// Golden State sıfırlama: demo_active'i sil, blueprint'i kopyala
-			admin.POST("/restore", handlers.RestoreGoldenState)
+			admin.POST("/system/restore", handlers.RestoreGoldenState)
+			// Kullanıcı listesi: yalnızca admin görebilir
+			admin.GET("/users", handlers.GetUsers(db.DB))
 		}
 	}
 
