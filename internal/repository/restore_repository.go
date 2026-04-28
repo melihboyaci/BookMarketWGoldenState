@@ -47,27 +47,30 @@ func RestoreGoldenState(db *sql.DB) (*RestoreResult, error) {
 
 	// ── Adım 1: DELETE (FK sırasına göre) ────────────────────────────────────
 
-	// 1a. Önce orders: users'a FK bağlı olduğundan önce silinmeli
-	_, err = tx.Exec(`DELETE FROM orders WHERE tenant_id = 'demo_active'`)
+	// 1a. Önce orders
+	resOrders, err := tx.Exec(`DELETE FROM orders WHERE tenant_id = 'demo_active'`)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, fmt.Errorf("demo_active orders silinemedi: %w", err)
 	}
+	delOrders, _ := resOrders.RowsAffected()
 
-	// 1b. Sonra users: books'a bağımlılığı yok, orders temizlendikten sonra silinebilir
-	_, err = tx.Exec(`DELETE FROM users WHERE tenant_id = 'demo_active'`)
+	// 1b. Sonra users
+	resUsers, err := tx.Exec(`DELETE FROM users WHERE tenant_id = 'demo_active'`)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, fmt.Errorf("demo_active users silinemedi: %w", err)
 	}
+	delUsers, _ := resUsers.RowsAffected()
 
-	// 1c. Son olarak books: diğer tablolara referans eden tablolar temizlendikten sonra
-	delRes, err := tx.Exec(`DELETE FROM books WHERE tenant_id = 'demo_active'`)
+	// 1c. Son olarak books
+	resBooks, err := tx.Exec(`DELETE FROM books WHERE tenant_id = 'demo_active'`)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, fmt.Errorf("demo_active books silinemedi: %w", err)
 	}
-	deletedRows, _ := delRes.RowsAffected()
+	delBooks, _ := resBooks.RowsAffected()
+	deletedRows := delOrders + delUsers + delBooks
 
 	// ── Adım 2: INSERT ... SELECT (Bağımlılık sırasına göre) ─────────────────
 

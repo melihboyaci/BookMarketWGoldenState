@@ -44,6 +44,9 @@ func setupTestDB(ctx context.Context, t *testing.T) (*postgres.PostgresContainer
 	// Migrasyonları ve Seed'i çalıştır
 	runSQLFile(t, db, "../db/migrations/001_create_books_table.sql")
 	runSQLFile(t, db, "../db/migrations/002_fix_isbn_tenant_unique.sql")
+	runSQLFile(t, db, "../db/migrations/003_create_orders_table.sql")
+	runSQLFile(t, db, "../db/migrations/004_add_image_url_to_books.sql")
+	runSQLFile(t, db, "../db/migrations/005_create_users_table.sql")
 	runSQLFile(t, db, "../db/seed.sql")
 
 	return pgContainer, db
@@ -78,7 +81,7 @@ func TestRestoreGoldenState(t *testing.T) {
 		_, err := db.Exec("UPDATE books SET price = 999.99 WHERE tenant_id = 'demo_active'")
 		require.NoError(t, err)
 		
-		_, err = db.Exec("DELETE FROM books WHERE tenant_id = 'demo_active' AND isbn = '978-0135957059'")
+		_, err = db.Exec("DELETE FROM books WHERE tenant_id = 'demo_active' AND isbn = '978-9750718908'")
 		require.NoError(t, err)
 
 		// Kirlenmiş veriyi kontrol et (silinenle birlikte 9 tane kalmış olmalı)
@@ -93,8 +96,8 @@ func TestRestoreGoldenState(t *testing.T) {
 		// ADIM 3: Sonuçları doğrula
 		require.NoError(t, err)
 		require.NotNil(t, result)
-		assert.Equal(t, int64(9), result.DeletedRows) // 9 kirli satır silindi
-		assert.Equal(t, int64(10), result.InsertedRows) // 10 temiz satır eklendi
+		assert.Equal(t, int64(12), result.DeletedRows) // 9 kirli kitap + 3 kullanıcı silindi
+		assert.Equal(t, int64(13), result.InsertedRows) // 10 kitap + 3 kullanıcı kopyalandı
 		assert.GreaterOrEqual(t, result.DurationMs, int64(0)) // Süre 0 veya daha büyük olmalı
 
 		// ADIM 4: Veritabanındaki güncel durumu doğrula (Tekrar 10'a çıkmalı ve orijinal fiyata dönmeli)
@@ -103,8 +106,8 @@ func TestRestoreGoldenState(t *testing.T) {
 		assert.Equal(t, 10, activeCount)
 
 		var price float64
-		err = db.QueryRow("SELECT price FROM books WHERE tenant_id = 'demo_active' AND isbn = '978-0135957059'").Scan(&price)
+		err = db.QueryRow("SELECT price FROM books WHERE tenant_id = 'demo_active' AND isbn = '978-9750718908'").Scan(&price)
 		require.NoError(t, err)
-		assert.Equal(t, 49.99, price) // Orijinal şablondaki fiyata dönmüş olmalı
+		assert.Equal(t, 185.00, price) // Orijinal şablondaki (Saatleri Ayarlama Enstitüsü) fiyata dönmüş olmalı
 	})
 }
