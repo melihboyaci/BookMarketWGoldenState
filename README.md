@@ -9,6 +9,7 @@
 ![Vite](https://img.shields.io/badge/Vite-B73BFE?style=for-the-badge&logo=vite&logoColor=FFD62E)
 ![JWT](https://img.shields.io/badge/JWT-black?style=for-the-badge&logo=JSON%20web%20tokens)
 ![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white)
+![SOLID](https://img.shields.io/badge/SOLID-Principles-brightgreen?style=for-the-badge)
 
 ---
 
@@ -29,7 +30,7 @@ Sıfırlama işlemi sıradan bir tablonun silinip (`TRUNCATE`) baştan yaratılm
 | Aşama | Teknik Detay |
 | :--- | :--- |
 | **İzolasyon** | Veritabanında aynı tabloda (`books`, `users`, `orders`) veriler `tenant_id` bazında izole edilir. Uygulamanın anlık kullandığı veriler `demo_active` tenant'ındadır. Asla değiştirilmeyen "Altın Şablon" verisi ise `demo_blueprint` tenant'ında yaşar. |
-| **Concurrency (Eşzamanlılık)** | Go tarafında `sync.Mutex` ve `TryLock` kullanılarak aynı anda yalnızca bir sıfırlama işleminin çalışması garanti altına alınır. İşlem sırasında gelen diğer istekler anında reddedilir. |
+| **Concurrency (Eşzamanlılık)** | `sync.Mutex` ve `TryLock`, `PostgresRestoreRepository` struct'ı içinde **kapsüllenmiştir** (Encapsulation). Aynı anda yalnızca bir restore işlemi çalışır; eş zamanlı gelen istekler anında reddedilir. Global kilit değişkeni bulunmaz. |
 | **Atomik İşlem (Transaction)** | ORM kullanılmamıştır. Go'nun `database/sql` paketi ile saf SQL kullanılarak işlemler başlatılır (`tx.Begin()`). FK sırasına göre: `orders → users → books` silinir, ardından blueprint'ten kopyalanır. |
 | **INSERT ... SELECT** | `demo_active` kayıtları silindikten hemen sonra, veritabanı motoru seviyesinde `INSERT INTO ... SELECT ... FROM ... WHERE tenant_id = 'demo_blueprint'` operasyonu ile altın şablon klonlanır. |
 | **Milisaniye Seviyesinde Hız** | İşlemlerin tümü PostgreSQL içinde gerçekleştiği için veri ağda gidip gelmez. Tek bir `COMMIT` ile kalıcı hale gelir. Sonuç: **milisaniyeler içinde atomik ve tutarlı bir reset işlemi.** |
@@ -38,7 +39,7 @@ Sıfırlama işlemi sıradan bir tablonun silinip (`TRUNCATE`) baştan yaratılm
 
 ## 🏗️ Architecture & Stack
 
-Proje, katmanlı bir mimari yaklaşımıyla tasarlanmıştır. Backend tarafında ORM'siz, performansa odaklı bir yapı tercih edilirken, Frontend tarafında modern araçlar kullanılmıştır.
+Proje, **S.O.L.I.D. prensiplerine** ve **Clean Code** standartlarına uygun, katmanlı ve bağımlılık enjeksiyonu tabanlı bir mimariyle tasarlanmıştır. Her katman, kendisinden alt katmana bir **Interface (Arayüz)** üzerinden bağlanır.
 
 ```mermaid
 graph TD
@@ -50,11 +51,12 @@ graph TD
         API_Layer[Axios API Services]
     end
 
-    subgraph Backend [Go / Gin]
+    subgraph Backend [Go / Gin — S.O.L.I.D]
         Router[Gin Router]
         Middleware[JWT Auth & Role Middleware]
-        Handlers[HTTP Handlers]
-        Repo[Repository / Pure SQL]
+        Handlers[Handlers — Interface'e bağımlı]
+        Interfaces[Repository Interfaces]
+        Repo[PostgresRepository — Concrete Impl]
     end
 
     subgraph Database [PostgreSQL]
@@ -68,14 +70,42 @@ graph TD
     API_Layer -- REST API --> Router
     Router --> Middleware
     Middleware --> Handlers
-    Handlers --> Repo
+    Handlers -- Dependency Injection --> Interfaces
+    Interfaces --> Repo
     Repo -- SQL tx.Begin --> ActiveData
     Repo -- INSERT ... SELECT --> BlueprintData
 ```
 
+### 🧱 Temel Mimari Prensipler
+
+| Prensip | Uygulama |
+| :--- | :--- |
+| **Dependency Inversion (SOLID-D)** | Handler'lar somut `sql.DB` yerine `UserRepository`, `BookRepository` gibi interface'lere bağımlıdır. |
+| **Interface Segregation (SOLID-I)** | Her iş alanının kendi küçük ve odaklı interface'i vardır; tek bir devasa Storage nesnesi yoktur. |
+| **Single Responsibility (SOLID-S)** | `db.Connect` yalnızca bağlantı açar. Handler'lar yalnızca HTTP katmanını yönetir. Repository'ler yalnızca SQL yazar. |
+| **Dependency Injection** | Tüm bağımlılıklar (`NewAuthHandler(repo, cfg)` gibi) constructor'larla dışarıdan enjekte edilir; global değişken yoktur. |
+| **Constants over Magic Strings** | `"demo_active"` ve `"demo_blueprint"` gibi string sabitler `config.TenantActive` / `config.TenantBlueprint` olarak merkezileştirilmiştir. |
+
+> 📄 Mimari kararların ve SOLID uygulamalarının detaylı analizi için bkz: [`docs/REFACTOR_SUMMARY.md`](./docs/REFACTOR_SUMMARY.md)
+
+### 🗂️ Proje Klasör Yapısı
+
+```
+📦 BookMarketWGoldenState
+├── cmd/api/          # Uygulama giriş noktası — main.go (sadece wiring & bootstrap)
+├── internal/
+│   ├── config/       # Merkezi konfigürasyon (Config struct) ve sabitler
+│   ├── db/           # DB bağlantısı, migrasyon ve seed işlemleri
+│   ├── handlers/     # HTTP Handler'lar (Struct tabanlı, interface'e bağımlı)
+│   ├── middleware/   # JWT doğrulama ve rol kontrolü
+│   ├── models/       # Veri modelleri (Book, User, Order...)
+│   └── repository/   # Interface + Postgres implementasyonları
+└── frontend/         # React + Vite uygulaması
+```
+
 ### 🗂️ Katman Özeti
 - **Frontend:** React, Vite (hızlı build), Vanilla CSS (styling), Context API (AuthContext + CartContext).
-- **Backend:** Go, Gin (HTTP framework), `database/sql` (ORM'siz veri erişimi), JWT + bcrypt (kimlik doğrulama & şifreleme).
+- **Backend:** Go, Gin (HTTP framework), `database/sql` (ORM'siz veri erişimi), JWT + bcrypt (kimlik doğrulama & şifreleme), **S.O.L.I.D. mimarisi**.
 - **Veritabanı:** PostgreSQL (Docker üzerinde), çok kiracılı (`multi-tenant`) şema.
 - **CI/CD:** GitHub Actions ile her `push`'ta otomatik Go testleri (Testcontainers ile gerçek PostgreSQL).
 
